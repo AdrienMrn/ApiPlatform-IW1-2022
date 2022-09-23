@@ -13,7 +13,13 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Gedmo\Mapping\Annotation\Blameable;
+use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\Serializer\Annotation\Groups;
+use Symfony\Component\Validator\Constraints\Length;
+use Symfony\Component\Validator\Constraints\NotBlank;
+use Symfony\Component\Validator\Constraints\NotNull;
+use Symfony\Component\Validator\Constraints\Type;
 
 #[ApiResource(
     denormalizationContext: ['groups' => ['joke_write']],
@@ -26,11 +32,15 @@ use Symfony\Component\Serializer\Annotation\Groups;
     normalizationContext: ['groups' => ['joke_cget', 'joke_read']]
 )]
 #[Post(
-    normalizationContext:  ['groups' => ['joke_post']]
+    normalizationContext:  ['groups' => ['joke_post']],
+    security: 'is_granted("ROLE_MODERATOR")'
 )]
-#[Patch]
+#[Patch(
+    security: 'is_granted("ROLE_ADMIN") or object.getAuthor() == user'
+)]
 #[Delete]
 #[ORM\Entity(repositoryClass: JokeRepository::class)]
+#[UniqueEntity('text')]
 class Joke
 {
     #[ORM\Id]
@@ -40,21 +50,52 @@ class Joke
 
     #[ORM\Column(type: Types::TEXT)]
     #[Groups(['joke_read', 'joke_write'])]
+    #[NotBlank(message: 'test')]
+    #[Type('string')]
+    #[Length(max: 255)]
     private ?string $text = null;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     #[Groups(['joke_get', 'joke_write'])]
     private ?string $answer = null;
 
-    #[ORM\OneToMany(mappedBy: 'joke', targetEntity: Rate::class)]
+    #[ORM\OneToMany(mappedBy: 'joke', targetEntity: Rate::class, cascade: ['persist', 'remove'])]
     private Collection $rates;
 
     #[ORM\ManyToMany(targetEntity: Category::class, inversedBy: 'jokes')]
     #[Groups('joke_get')]
     private Collection $categories;
 
-    #[ORM\OneToMany(mappedBy: 'joke', targetEntity: Comment::class)]
+    #[ORM\OneToMany(mappedBy: 'joke', targetEntity: Comment::class, cascade: ['remove'])]
     private Collection $comments;
+
+    #[ORM\ManyToOne(inversedBy: 'jokes')]
+    #[Blameable(on: 'create')]
+    private ?User $author = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?float $ratesTotal = null;
+
+    #[Groups('joke_get')]
+    private ?float $avarage = null;
+
+    /**
+     * @return float|null
+     */
+    public function getAvarage(): ?float
+    {
+        return $this->avarage;
+    }
+
+    /**
+     * @param float|null $avarage
+     * @return Joke
+     */
+    public function setAvarage(?float $avarage): Joke
+    {
+        $this->avarage = $avarage;
+        return $this;
+    }
 
     public function __construct()
     {
@@ -172,6 +213,30 @@ class Joke
                 $comment->setJoke(null);
             }
         }
+
+        return $this;
+    }
+
+    public function getAuthor(): ?User
+    {
+        return $this->author;
+    }
+
+    public function setAuthor(?User $author): self
+    {
+        $this->author = $author;
+
+        return $this;
+    }
+
+    public function getRatesTotal(): ?float
+    {
+        return $this->ratesTotal;
+    }
+
+    public function setRatesTotal(?float $ratesTotal): self
+    {
+        $this->ratesTotal = $ratesTotal;
 
         return $this;
     }
